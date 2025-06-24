@@ -5,6 +5,10 @@ import os
 import threading
 import configparser
 from pathlib import Path
+import sys
+import darkdetect
+import pywinstyles
+import sv_ttk
 
 class S3Manager:
     def __init__(self, root):
@@ -12,6 +16,8 @@ class S3Manager:
         self.root.title("AWS S3 Manager")
         self.root.iconbitmap(Path(__file__).parent / 's3.ico')
         self.root.geometry("1000x700")
+        sv_ttk.set_theme(darkdetect.theme())
+        self.apply_theme_to_titlebar(self.root)
         
         # AWS configuration paths
         self.aws_dir = Path.home() / '.aws'
@@ -27,6 +33,19 @@ class S3Manager:
         self.load_aws_profiles()
         self.setup_gui()
         
+    def apply_theme_to_titlebar(self, root):
+        if sys.platform == "win32":
+            version = sys.getwindowsversion()
+
+            if version.major == 10 and version.build >= 22000:
+                # Set the title bar color to the background color on Windows 11 for better appearance
+                pywinstyles.change_header_color(root, "#1c1c1c" if sv_ttk.get_theme() == "dark" else "#fafafa")
+            elif version.major == 10:
+                pywinstyles.apply_style(root, "dark" if sv_ttk.get_theme() == "dark" else "normal")
+                # A hacky way to update the title bar's color on Windows 10 (it doesn't update instantly like on Windows 11)
+                root.wm_attributes("-alpha", 0.99)
+                root.wm_attributes("-alpha", 1)
+            
     def load_aws_profiles(self):
         """Load AWS profiles from ~/.aws/credentials and ~/.aws/config"""
         self.profiles = {}
