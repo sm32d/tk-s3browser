@@ -1,12 +1,8 @@
 import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 import boto3
-from botocore.exceptions import ClientError, NoCredentialsError
-import json
 import os
-from datetime import datetime
 import threading
-from io import BytesIO
 import configparser
 from pathlib import Path
 
