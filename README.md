@@ -19,6 +19,9 @@ and more...
 - AWS profiles set-up in `~/.aws/credentials` and/or `~/.aws/config` and authenticated
 - Python 3.x
 - Boto3 (from pip)
+- darkdetect
+- pywinstyles
+- sv_ttk
 
 ## Usage
 
