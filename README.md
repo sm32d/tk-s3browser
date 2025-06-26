@@ -37,3 +37,19 @@ and more...
 4. Use the buttons to upload, download, or delete files. Or right-click on a file for more options.
 
 5. To create a new directory, enter the directory name and click "Create Directory".
+
+## Build
+
+You can build this into an executable using `pyinstaller` as follows:
+
+1. Install PyInstaller if you haven't already:
+   ```
+   pip install pyinstaller
+   ```
+
+2. Navigate to the project directory and run:
+   ```
+   pyinstaller --windowed --icon=s3.ico --add-data "s3.ico;." --add-data "info.ico;." --add-data "error.ico;." --add-data "warning.ico;." --name "S3 Browser" s3browser.py
+   ```
+
+3. After the build completes, you can find the executable in the `dist` folder.
