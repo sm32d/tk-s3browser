@@ -74,6 +74,10 @@ class S3Manager:
                     profile_names.add(section[8:])  # Remove 'profile ' prefix
                 elif section == 'default':
                     profile_names.add(section)
+                    
+            # order the profile_names
+            profile_names = sorted(profile_names)
+            profile_names.insert(0, '-')
             
             # Build profile data
             for profile_name in profile_names:
@@ -290,54 +294,73 @@ class S3Manager:
         if not profile_name or profile_name not in self.profiles:
             return
         
-        try:
-            profile = self.profiles[profile_name]
-            
-            # Create session with profile
-            session = boto3.Session(profile_name=profile_name)
-            self.s3_client = session.client('s3')
-            
-            # Test connection
-            self.s3_client.list_buckets()
-            self.status_var.set(f"Connected to profile: {profile_name} (Region: {profile.get('region', 'default')})")
-            self.current_profile = profile_name
-            self.refresh_buckets()
-            
-        except Exception as e:
-            # Fallback to manual credential creation if session fails
+        if profile_name == '-':
+            self.s3_client = None
+            self.current_profile = None
+            self.current_bucket = None
+            self.bucket_var.set("")
+            self.path_var.set("")
+            self.current_prefix = ""
+            self.status_var.set("Not connected")
+            self.bucket_combo['values'] = []
+            self.tree.delete(*self.tree.get_children())
+            return
+        
+        progress_dialog = ProgressDialog(self.root, "Connecting", f"Connecting to {profile_name}...")
+        
+        def connect_to_profile():            
             try:
                 profile = self.profiles[profile_name]
                 
-                # Check if we have required credentials
-                if 'aws_access_key_id' not in profile or 'aws_secret_access_key' not in profile:
-                    raise Exception("Missing access key or secret key in profile")
-                
-                client_kwargs = {
-                    'aws_access_key_id': profile['aws_access_key_id'],
-                    'aws_secret_access_key': profile['aws_secret_access_key'],
-                    'region_name': profile.get('region', 'us-east-1')
-                }
-                
-                # Add session token if available (for temporary credentials)
-                if 'aws_session_token' in profile:
-                    client_kwargs['aws_session_token'] = profile['aws_session_token']
-                
-                self.s3_client = boto3.client('s3', **client_kwargs)
+                # Create session with profile
+                session = boto3.Session(profile_name=profile_name)
+                self.s3_client = session.client('s3')
                 
                 # Test connection
                 self.s3_client.list_buckets()
-                self.status_var.set(f"Connected to profile: {profile_name} (Region: {profile.get('region', 'us-east-1')})")
+                self.status_var.set(f"Connected to profile: {profile_name} (Region: {profile.get('region', 'default')})")
                 self.current_profile = profile_name
                 self.refresh_buckets()
                 
-            except Exception as e2:
-                CustomDialog(self.root, "Connection Error", 
-                    f"Failed to connect with profile '{profile_name}':\n{str(e2)}\n\n"
-                    f"Please check your AWS configuration in:\n"
-                    f"• {self.credentials_file}\n"
-                    f"• {self.config_file}", "error")
-                self.status_var.set("Connection failed")
-    
+            except Exception as e:
+                # Fallback to manual credential creation if session fails
+                try:
+                    profile = self.profiles[profile_name]
+                    
+                    # Check if we have required credentials
+                    if 'aws_access_key_id' not in profile or 'aws_secret_access_key' not in profile:
+                        raise Exception("Missing access key or secret key in profile")
+                    
+                    client_kwargs = {
+                        'aws_access_key_id': profile['aws_access_key_id'],
+                        'aws_secret_access_key': profile['aws_secret_access_key'],
+                        'region_name': profile.get('region', 'us-east-1')
+                    }
+                    
+                    # Add session token if available (for temporary credentials)
+                    if 'aws_session_token' in profile:
+                        client_kwargs['aws_session_token'] = profile['aws_session_token']
+                    
+                    self.s3_client = boto3.client('s3', **client_kwargs)
+                    
+                    # Test connection
+                    self.s3_client.list_buckets()
+                    self.status_var.set(f"Connected to profile: {profile_name} (Region: {profile.get('region', 'us-east-1')})")
+                    self.current_profile = profile_name
+                    self.refresh_buckets()
+                    
+                except Exception as e2:
+                    CustomDialog(self.root, "Connection Error", 
+                        f"Failed to connect with profile '{profile_name}':\n{str(e2)}\n\n"
+                        f"Please check your AWS configuration in:\n"
+                        f"• {self.credentials_file}\n"
+                        f"• {self.config_file}", "error")
+                    self.status_var.set("Connection failed")
+            finally:
+                self.root.after(0, lambda: progress_dialog.destroy())
+
+        threading.Thread(target=connect_to_profile, daemon=True).start()
+
     def refresh_buckets(self):
         """Refresh the list of S3 buckets"""
         if not self.s3_client:
