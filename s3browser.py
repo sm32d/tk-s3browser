@@ -350,11 +350,9 @@ class S3Manager:
                     self.refresh_buckets()
                     
                 except Exception as e2:
-                    CustomDialog(self.root, "Connection Error", 
+                    self.root.after(0, lambda: CustomDialog(self.root, "Connection Error",
                         f"Failed to connect with profile '{profile_name}':\n{str(e2)}\n\n"
-                        f"Please check your AWS configuration in:\n"
-                        f"• {self.credentials_file}\n"
-                        f"• {self.config_file}", "error")
+                        f"Please check your AWS configuration", "error"))
                     self.status_var.set("Connection failed")
             finally:
                 self.root.after(0, lambda: progress_dialog.destroy())
