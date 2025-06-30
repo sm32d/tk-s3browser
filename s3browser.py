@@ -530,6 +530,7 @@ class S3Manager:
                                     os.remove(temp_path)
                                     CustomDialog(self.root, 'Success', 'File uploaded successfully')
                                     self.refresh_current_folder()
+                                    return
                                 last_modified = current_modified
                             self.root.after(1000, check_for_changes)  # Check every second
                         except Exception as e:
