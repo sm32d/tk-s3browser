@@ -26,7 +26,7 @@ def apply_theme_to_titlebar(root):
 class S3Manager:
     def __init__(self, root):
         self.root = root
-        self.root.title("AWS S3 Manager")
+        self.root.title("AWS S3 Manager V2")
         self.root.iconbitmap(Path(__file__).parent / 's3.ico')
         self.root.geometry("1000x700")
         sv_ttk.set_theme(darkdetect.theme())
@@ -42,6 +42,9 @@ class S3Manager:
         self.s3_client = None
         self.current_bucket = None
         self.current_prefix = ""
+        
+        # File monitoring
+        self.monitored_files = {}  # Track files being monitored
         
         self.load_aws_profiles()
         self.setup_gui()
@@ -108,7 +111,7 @@ class S3Manager:
                 
                 # Set default region if not specified
                 if 'region' not in profile_data:
-                    profile_data['region'] = 'us-east-1'
+                    profile_data['region'] = 'ap-southeast-1'
                 
                 self.profiles[profile_name] = profile_data
             
@@ -504,6 +507,9 @@ class S3Manager:
                 temp_path = os.path.join(temp_dir, file_name)
                 
                 try:
+                    if os.path.exists(temp_path):
+                        os.remove(temp_path)
+                    
                     self.s3_client.download_file(self.current_bucket, s3_key, temp_path)
                     
                     # Open file with default application
@@ -514,33 +520,92 @@ class S3Manager:
                     else:
                         subprocess.run(['xdg-open', temp_path])
                     
-                    # Monitor file for changes
-                    last_modified = os.path.getmtime(temp_path)
-                    
-                    def check_for_changes():
-                        nonlocal last_modified
-                        try:
-                            current_modified = os.path.getmtime(temp_path)
-                            if current_modified > last_modified:
-                                # File was modified, ask to upload
-                                if messagebox.askyesno('File Changed', 
-                                    f'The file {file_name} has been modified. Upload changes to S3?'):
-                                    self.s3_client.upload_file(temp_path, self.current_bucket, s3_key)
-                                    # delete the temp file after upload
-                                    os.remove(temp_path)
-                                    CustomDialog(self.root, 'Success', 'File uploaded successfully')
-                                    self.refresh_current_folder()
-                                    return
-                                last_modified = current_modified
-                            self.root.after(1000, check_for_changes)  # Check every second
-                        except Exception as e:
-                            messagebox.showerror('Error', f'Failed to monitor file: {str(e)}') # File was deleted or other error
-                    
-                    self.root.after(1000, check_for_changes)
+                    # Start monitoring this file
+                    self.start_file_monitoring(temp_path, s3_key, file_name)
                     
                 except Exception as e:
                     messagebox.showerror('Error', f'Failed to open file: {str(e)}')
     
+    def start_file_monitoring(self, temp_path, s3_key, file_name):
+        """Start monitoring a file for changes"""
+        # Stop monitoring if already monitoring this file
+        if temp_path in self.monitored_files:
+            self.stop_file_monitoring(temp_path)
+        
+        try:
+            initial_modified = os.path.getmtime(temp_path)
+            
+            # Store monitoring info
+            self.monitored_files[temp_path] = {
+                's3_key': s3_key,
+                'file_name': file_name,
+                'last_modified': initial_modified,
+                'monitoring': True,
+                'has_prompted': False  # Track if we've already prompted for this change
+            }
+            
+            # Start monitoring
+            self.check_file_changes(temp_path)
+            
+        except Exception as e:
+            print(f"Failed to start monitoring {temp_path}: {e}")
+    
+    def stop_file_monitoring(self, temp_path):
+        """Stop monitoring a file"""
+        if temp_path in self.monitored_files:
+            self.monitored_files[temp_path]['monitoring'] = False
+            del self.monitored_files[temp_path]
+    
+    def check_file_changes(self, temp_path):
+        """Check if a monitored file has changed"""
+        if temp_path not in self.monitored_files or not self.monitored_files[temp_path]['monitoring']:
+            return
+        
+        try:
+            monitor_info = self.monitored_files[temp_path]
+            
+            # Check if file still exists
+            if not os.path.exists(temp_path):
+                self.stop_file_monitoring(temp_path)
+                return
+            
+            current_modified = os.path.getmtime(temp_path)
+            
+            # Check if file was modified
+            if current_modified > monitor_info['last_modified']:
+                # Only prompt once per modification
+                if not monitor_info['has_prompted']:
+                    monitor_info['has_prompted'] = True
+                    
+                    # File was modified, ask to upload
+                    if messagebox.askyesno('File Changed', 
+                        f'The file {monitor_info["file_name"]} has been modified. Upload changes to S3?'):
+                        
+                        try:
+                            self.s3_client.upload_file(temp_path, self.current_bucket, monitor_info['s3_key'])
+                            CustomDialog(self.root, 'Success', 'File uploaded successfully')
+                            self.refresh_current_folder()
+                        except Exception as e:
+                            messagebox.showerror('Error', f'Failed to upload file: {str(e)}')
+                    
+                    # Update the last modified time and reset prompt flag
+                    monitor_info['last_modified'] = current_modified
+                    # Reset prompt flag after a delay to allow for multiple saves
+                    self.root.after(2000, lambda: self.reset_prompt_flag(temp_path))
+            
+            # Continue monitoring if still active
+            if monitor_info['monitoring']:
+                self.root.after(1000, lambda: self.check_file_changes(temp_path))
+                
+        except Exception as e:
+            # File was deleted or other error, stop monitoring
+            self.stop_file_monitoring(temp_path)
+    
+    def reset_prompt_flag(self, temp_path):
+        """Reset the prompt flag for a monitored file"""
+        if temp_path in self.monitored_files:
+            self.monitored_files[temp_path]['has_prompted'] = False
+
     def on_right_click(self, event):
         """Handle right-click for context menu"""
         item = self.tree.identify_row(event.y)
@@ -709,6 +774,11 @@ class S3Manager:
             
         except Exception as e:
             messagebox.showerror("Error", f"Delete failed: {str(e)}")
+    
+    def cleanup_monitoring(self):
+        """Clean up all file monitoring when application closes"""
+        for temp_path in list(self.monitored_files.keys()):
+            self.stop_file_monitoring(temp_path)
 
 
 class ProgressDialog:
@@ -767,4 +837,11 @@ class CustomDialog:
 if __name__ == "__main__":
     root = tk.Tk()
     app = S3Manager(root)
+    
+    # Handle application close
+    def on_closing():
+        app.cleanup_monitoring()
+        root.destroy()
+    
+    root.protocol("WM_DELETE_WINDOW", on_closing)
     root.mainloop()
